@@ -23,12 +23,18 @@ fn main() -> Result<()> {
     let directions = Direction::from(&content);
 
     part1(&directions[..]);
+    part2(&directions[..]);
     Ok(())
 }
 
 fn part1(directions: &[Direction]) {
     let (pos, depth) = get_pos_depth(directions);
     println!("part1: {}", pos * depth);
+}
+
+fn part2(directions: &[Direction]) {
+    let (pos, depth) = get_pos_depth_w_aim(directions);
+    println!("part2: {}", pos * depth);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -103,6 +109,28 @@ fn get_pos_depth(dirs: &[Direction]) -> (u64, u64) {
     (pos, depth)
 }
 
+fn get_pos_depth_w_aim(dirs: &[Direction]) -> (u64, u64) {
+    let mut pos = 0;
+    let mut depth = 0;
+    let mut aim: i64 = 0;
+    use Direction::*;
+    for d in dirs.iter() {
+        match d {
+            Forward(steps) => {
+                pos += steps;
+                depth += *steps as i64 * aim;
+            }
+            Up(steps) => {
+                aim -= *steps as i64;
+            }
+            Down(steps) => {
+                aim += *steps as i64;
+            }
+        }
+    }
+    (pos, depth as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,7 +143,7 @@ mod tests {
                               forward 2\n";
 
     #[test]
-    fn test() {
+    fn test_part1() {
         let directions = Direction::from(DEBUG_DATA);
         assert_eq!(directions.len(), 6, "did not parse all instructions");
 
@@ -126,5 +154,19 @@ mod tests {
         assert_eq!(debug_pos, 15, "pos does not match");
         assert_eq!(debug_depth, 10, "depth does not match");
         assert_eq!(debug_pos * debug_depth, 150);
+    }
+
+    #[test]
+    fn test_part2() {
+        let directions = Direction::from(DEBUG_DATA);
+        assert_eq!(directions.len(), 6, "did not parse all instructions");
+
+        let (debug_pos, debug_depth) = get_pos_depth_w_aim(&directions[..]);
+
+        println!("{:?}", directions);
+
+        assert_eq!(debug_pos, 15, "pos does not match");
+        assert_eq!(debug_depth, 60, "depth does not match");
+        assert_eq!(debug_pos * debug_depth, 900);
     }
 }
