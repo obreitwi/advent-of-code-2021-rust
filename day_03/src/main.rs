@@ -36,8 +36,8 @@ fn part1(diag: &Diagnostics) {
     println!("part1: {}", diag.gamma() * diag.epsilon());
 }
 
-fn part2(_diag: &Diagnostics) {
-    // println!("part2: {}", pos * depth);
+fn part2(diag: &Diagnostics) {
+    println!("part2: {}", diag.oxygen_generator_rating() * diag.co2_scrubber_rating());
 }
 
 trait Parseable: Sized {
@@ -95,7 +95,7 @@ impl Diagnostics {
             // shift to left
             retval *= 2;
 
-            let bitcount = get_bitcount(self.num_bits - 1 - i, &self.numbers[..]);
+            let bitcount = get_bitcount(&self.numbers[..], self.num_bits - 1 - i);
             if bitcount > half {
                 // add bit if most common
                 retval += 1;
@@ -114,6 +114,14 @@ impl Diagnostics {
         let mask: usize = usize::MAX << self.num_bits;
         least_common & !mask
     }
+
+    fn oxygen_generator_rating(&self) -> u64 {
+        filter_by(self.numbers.clone(), self.num_bits - 1, criteria_most_common)
+    }
+
+    fn co2_scrubber_rating(&self) -> u64 {
+        filter_by(self.numbers.clone(), self.num_bits - 1, criteria_least_common)
+    }
 }
 
 fn binary_str_to_num(i: &str) -> u64 {
@@ -127,6 +135,29 @@ fn binary_str_to_num(i: &str) -> u64 {
     retval
 }
 
+type Criteria = fn(&[u64], usize) -> bool;
+
+fn criteria_most_common(numbers: &[u64], pos: usize) -> bool {
+    let bitcount = get_bitcount(numbers, pos);
+    bitcount*2 >= numbers.len()
+}
+
+fn criteria_least_common(numbers: &[u64], pos: usize) -> bool {
+    !criteria_most_common(numbers, pos)
+}
+
+fn filter_by(numbers: Vec<u64>, pos: usize, criteria: Criteria) -> u64 {
+    let desired_state =  criteria(&numbers[..], pos);
+    let filtered = numbers.into_iter().filter(|n| is_bit_set(*n, pos) == desired_state).collect::<Vec<_>>();
+    if filtered.len() == 1 {
+        filtered[0]
+    } else if pos > 0{
+        filter_by(filtered, pos-1, criteria)
+    } else {
+        panic!("Did not find number.");
+    }
+}
+
 fn num_bits(n: u64) -> usize {
     let mut n = n;
     let mut ld2 = 0;
@@ -137,7 +168,11 @@ fn num_bits(n: u64) -> usize {
     ld2
 }
 
-fn get_bitcount(pos: usize, numbers: &[u64]) -> usize {
+fn is_bit_set(num: u64, pos: usize) -> bool {
+    num & (1 << pos) > 0
+}
+
+fn get_bitcount(numbers: &[u64], pos: usize) -> usize {
     let selector = 1 << pos;
     numbers.iter().filter(|n| **n & selector > 0).count()
 }
@@ -174,12 +209,15 @@ mod tests {
     #[test]
     fn test_part1() {
         let diag = Diagnostics::from(DEBUG_DATA);
-        println!("{:?}", diag.numbers);
         assert_eq!(diag.num_bits, 5);
         assert_eq!(diag.gamma(), 22);
         assert_eq!(diag.epsilon(), 9);
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let diag = Diagnostics::from(DEBUG_DATA);
+        assert_eq!(diag.oxygen_generator_rating(), 23);
+        assert_eq!(diag.co2_scrubber_rating(), 10);
+    }
 }
