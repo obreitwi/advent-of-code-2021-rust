@@ -89,21 +89,17 @@ impl Diagnostics {
     }
 
     fn get_most_common_bits(&self) -> usize {
-        let mut selector: u64 = 1 << (self.num_bits - 1);
         let half = self.numbers.len() / 2;
         let mut retval = 0;
-        for _ in 0..self.num_bits {
+        for i in 0..self.num_bits {
             // shift to left
             retval *= 2;
 
-            let bitcount = self.numbers.iter().filter(|n| **n & selector > 0).count();
+            let bitcount = get_bitcount(self.num_bits - 1 - i, &self.numbers[..]);
             if bitcount > half {
                 // add bit if most common
                 retval += 1;
             }
-
-            // shift selector to right
-            selector /= 2;
         }
         retval
     }
@@ -139,6 +135,11 @@ fn num_bits(n: u64) -> usize {
         n /= 2;
     }
     ld2
+}
+
+fn get_bitcount(pos: usize, numbers: &[u64]) -> usize {
+    let selector = 1 << pos;
+    numbers.iter().filter(|n| **n & selector > 0).count()
 }
 
 #[cfg(test)]
