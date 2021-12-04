@@ -58,7 +58,7 @@ impl Direction {
                 parsed
             }
             Err(e) => {
-                panic!("Error parsing Grid: {}", e);
+                panic!("Error parsing: {}", e);
             }
         }
     }
