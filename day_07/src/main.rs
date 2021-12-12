@@ -45,7 +45,10 @@ fn part1(pos: &[i64]) {
 }
 
 fn part2(pos: &[i64]) {
-    todo!();
+    println!(
+        "part2: {} fuel needed",
+        get_fuel_linear_cost(pos)
+    );
 }
 
 fn read(i: &str) -> Vec<i64> {
@@ -61,6 +64,15 @@ fn get_fuel(pos: &[i64]) -> i64 {
     let min = *pos.iter().min().unwrap();
     let max = *pos.iter().max().unwrap();
     (min..max+1).map(|com| pos.iter().map(|p| (p - com).abs()).sum()).min().unwrap()
+}
+
+fn get_fuel_linear_cost(pos: &[i64]) -> i64 {
+    let min = *pos.iter().min().unwrap();
+    let max = *pos.iter().max().unwrap();
+    (min..max+1).map(|com| pos.iter().map(|p| {
+        let dist = (p - com).abs();
+        dist * (dist+1) / 2
+    }).sum()).min().unwrap()
 }
 
 trait Parseable: Sized {
@@ -89,5 +101,6 @@ mod tests {
     fn test_part2() {
         let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
         let pos = read(&content);
+        assert_eq!(get_fuel_linear_cost(&pos[..]), 168);
     }
 }
