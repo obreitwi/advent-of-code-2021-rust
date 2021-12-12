@@ -33,33 +33,59 @@ fn main() -> Result<()> {
     let jellyfish = read_jellyfish(&content);
 
     part1(jellyfish.clone());
-    part2(jellyfish);
+    part2(&jellyfish[..]);
     Ok(())
 }
 
 fn part1(jellyfish: Vec<u64>) {
-    println!("part1: {} fish after 80 days", count_jellyfish(jellyfish, 80));
+    println!(
+        "part1: {} fish after 80 days",
+        count_jellyfish(jellyfish, 80)
+    );
 }
 
-fn part2(_jellyfish: Vec<u64>) {
-    // println!("part2: {} overlaps", count_jellyfish(lines));
+fn part2(jellyfish: &[u64]) {
+    println!(
+        "part2: {} fish after 256",
+        count_jellyfish_fast(jellyfish, 256)
+    );
 }
 
 fn count_jellyfish(mut jellyfish: Vec<u64>, rounds: usize) -> usize {
-    for _ in 0..rounds {
+    for r in 0..rounds {
+        println!("Round #{}: {} fish", r, jellyfish.len());
         let mut num_additions = 0;
         for jf in jellyfish.iter_mut() {
             if *jf == 0 {
                 *jf = 6;
                 num_additions += 1;
-            }
-            else {
+            } else {
                 *jf -= 1;
             }
         }
         jellyfish.resize(jellyfish.len() + num_additions, 8);
     }
     jellyfish.len()
+}
+
+fn count_jellyfish_fast(jellyfish: &[u64], rounds: usize) -> usize {
+    let mut state_to_count = jellyfish_inventur(jellyfish);
+    for _ in 0..rounds {
+        let mut state_to_count_next = vec![0; state_to_count.len()];
+        state_to_count_next[8] = state_to_count[0];
+        state_to_count_next[..8].clone_from_slice(&state_to_count[1..]);
+        state_to_count_next[6] += state_to_count[0];
+        std::mem::swap(&mut state_to_count, &mut state_to_count_next);
+    }
+    state_to_count.iter().sum()
+}
+
+fn jellyfish_inventur(jellyfish: &[u64]) -> Vec<usize> {
+    let mut counts = vec![0; 9];
+    for jf in jellyfish {
+        counts[*jf as usize] += 1;
+    }
+    counts
 }
 
 fn read_jellyfish(i: &str) -> Vec<u64> {
@@ -98,5 +124,6 @@ mod tests {
     fn test_part2() {
         let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
         let jellyfish = read_jellyfish(&content);
+        assert_eq!(count_jellyfish_fast(&jellyfish[..], 256), 26984457539);
     }
 }
