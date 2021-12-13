@@ -43,11 +43,10 @@ fn part1(configs: &[Configuration]) {
 }
 
 fn part2(config: &[Configuration]) {
-    // println!(
-    // "part2: {} fuel needed",
-    // get_fuel_linear_cost(pos)
-    // );
-    todo!();
+    println!(
+        "part2: {} total sum",
+        config.iter().map(|c| c.decode()).sum::<usize>()
+    );
 }
 
 #[derive(Debug, Clone)]
@@ -77,7 +76,100 @@ fn read(i: &str) -> Vec<Configuration> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash)]
+impl Configuration {
+    fn get_mapping(&self) -> Vec<HashSet<Signal>> {
+        let mut num_to_wiring: HashMap<usize, Vec<HashSet<Signal>>> = HashMap::new();
+        for signal in self.signals.iter() {
+            num_to_wiring
+                .entry(signal.len())
+                .or_default()
+                .push(signal.iter().cloned().collect());
+        }
+
+        let mut mapping = vec![HashSet::new(); 10];
+
+        // determine 1, 4, 7, 8
+        mapping[1] = num_to_wiring[&2][0].iter().cloned().collect();
+        mapping[4] = num_to_wiring[&4][0].iter().cloned().collect();
+        mapping[7] = num_to_wiring[&3][0].iter().cloned().collect();
+        mapping[8] = num_to_wiring[&7][0].iter().cloned().collect();
+
+        // distinguish 6-wire digits: 0, 6, 9
+
+        // 9 is the one which has full overlap with 4
+        for signals in num_to_wiring[&6].iter() {
+            if mapping[4].difference(signals).count() == 0 {
+                mapping[9] = signals.clone();
+                break;
+            }
+        }
+
+        // 6 is the one which has a single difference with 1
+        for signals in num_to_wiring[&6].iter() {
+            if mapping[1].difference(signals).count() == 1 {
+                mapping[6] = signals.clone();
+                break;
+            }
+        }
+
+        // 0 is the remaining one
+        for signals in num_to_wiring[&6].iter() {
+            if *signals != mapping[9] && *signals != mapping[6] {
+                mapping[0] = signals.clone();
+                break;
+            }
+        }
+
+        // distinguish 2, 3, 5
+
+        // 5 is the one tha that has all but one signal from 6
+        for signals in num_to_wiring[&5].iter() {
+            if mapping[6].difference(signals).count() == 1 {
+                mapping[5] = signals.clone();
+                break;
+            }
+        }
+
+        // 3 has 1 segments less than 9 and is not 5
+        for signals in num_to_wiring[&5].iter() {
+            if mapping[9].difference(signals).count() == 1 && *signals != mapping[5] {
+                mapping[3] = signals.clone();
+                break;
+            }
+        }
+
+        // 2 is all that remains
+        for signals in num_to_wiring[&5].iter() {
+            if *signals != mapping[3] && *signals != mapping[5] {
+                mapping[2] = signals.clone();
+                break;
+            }
+        }
+
+        mapping
+    }
+
+    fn decode(&self) -> usize {
+        let mapping = self.get_mapping();
+        let mut retval = 0;
+        for digit in self.digits.iter() {
+            retval *= 10;
+            let set: HashSet<_> = digit.iter().cloned().collect();
+            let mut found = false;
+            for (decoded, signals) in mapping.iter().enumerate() {
+                if *signals == set {
+                    retval += decoded;
+                    found = true;
+                    break;
+                }
+            }
+            assert!(found, "did not find pattern with {} signals", set.len());
+        }
+        retval
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum Signal {
     A,
     B,
@@ -127,10 +219,23 @@ mod tests {
     fn test_part1() {
         let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
         let configs = read(&content);
-        println!("Read: {:#?}", configs);
         assert_eq!(count_unique_digits(&configs[..]), 26);
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
+        let configs = read(&content);
+        assert_eq!(configs.len(), 10);
+        assert_eq!(configs[0].decode(), 8394);
+        assert_eq!(configs[1].decode(), 9781);
+        assert_eq!(configs[2].decode(), 1197);
+        assert_eq!(configs[3].decode(), 9361);
+        assert_eq!(configs[4].decode(), 4873);
+        assert_eq!(configs[5].decode(), 8418);
+        assert_eq!(configs[6].decode(), 4548);
+        assert_eq!(configs[7].decode(), 1625);
+        assert_eq!(configs[8].decode(), 8717);
+        assert_eq!(configs[9].decode(), 4315);
+    }
 }
