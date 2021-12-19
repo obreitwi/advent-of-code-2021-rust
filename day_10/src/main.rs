@@ -21,186 +21,168 @@ use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<()> {
-    let input = PathBuf::from(
-        env::args()
-            .nth(1)
-            .with_context(|| "No input provided!")
-            .unwrap_or_else(|_| "input.txt".to_owned()),
-    );
-    println!("Input: {}", input.display());
+    let input = PathBuf::from("input.txt");
     let content = read_to_string(&input)?;
 
-    let grid = Grid::read(&content);
+    let lines = parse_lines(&content).finish().unwrap().1;
 
-    part1(&grid);
-    part2(&grid);
+    part1(&lines[..]);
+    part2(&lines[..]);
     Ok(())
 }
 
-fn part1(grid: &Grid) {
-    let low_points = grid.get_low_points();
-
-    println!(
-        "part1: {} low points with risk of {}",
-        low_points.len(),
-        low_points.iter().map(|p| p.risk_level()).sum::<usize>()
-    );
+fn part1(lines: &[BracketLine]) {
+    let score = get_score_syntax(lines);
+    println!("part 1: {}", score);
 }
 
-fn part2(grid: &Grid) {
-    println!("part 2: product: {}", grid.get_largest_basins().iter().product::<usize>());
+fn part2(lines: &[BracketLine]) {
+    let score = get_score_closing(lines);
+    println!("part 2: {}", score);
 }
 
-#[derive(Debug, Clone)]
-struct Grid {
-    size_x: usize,
-    size_y: usize,
-    grid: Vec<Vec<usize>>,
+fn get_score_syntax(lines: &[BracketLine]) -> u64 {
+    lines
+        .iter()
+        .filter_map(|l| get_first_syntax_error(&l[..]))
+        .map(|b| b.score())
+        .sum()
 }
 
-impl Parseable for Grid {
+fn get_first_syntax_error(line: &[Bracket]) -> Option<BracketType> {
+    let mut need_to_close: VecDeque<BracketType> = VecDeque::new();
+
+    for bracket in line.iter() {
+        match bracket {
+            (bracket, Open) => {
+                need_to_close.push_back(*bracket);
+            }
+
+            (bracket, Closed) => {
+                if let Some(current) = need_to_close.back() {
+                    if current != bracket {
+                        // found syntax error
+                        return Some(*bracket);
+                    }
+                }
+                need_to_close.pop_back();
+            }
+        }
+    }
+    None
+}
+
+fn get_score_closing(lines: &[Vec<Bracket>]) -> u64 {
+    let mut scores: Vec<_> = lines
+        .iter()
+        .filter_map(|l| get_closing_brackets(&l[..]))
+        .map(|bs| get_line_closing_score(&bs[..]))
+        .collect();
+    scores.sort_unstable();
+
+    scores[scores.len() / 2]
+}
+
+fn get_line_closing_score(line: &[BracketType]) -> u64 {
+    let mut score = 0;
+    for bracket in line.iter() {
+        score *= 5;
+        score += bracket.score_completion()
+    }
+    score
+}
+
+fn get_closing_brackets(line: &[Bracket]) -> Option<Vec<BracketType>> {
+    let mut need_to_close: VecDeque<BracketType> = VecDeque::new();
+
+    for bracket in line.iter() {
+        match bracket {
+            (bracket, Open) => {
+                need_to_close.push_back(*bracket);
+            }
+
+            (bracket, Closed) => {
+                if let Some(current) = need_to_close.back() {
+                    if current != bracket {
+                        // found syntax error
+                        return None;
+                    }
+                }
+                need_to_close.pop_back();
+            }
+        }
+    }
+    if !need_to_close.is_empty() {
+        let mut reversed: Vec<_> = need_to_close.into_iter().collect();
+        reversed.reverse();
+        Some(reversed)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum State {
+    Open,
+    Closed,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum BracketType {
+    Round,
+    Square,
+    Curved,
+    Sharp,
+}
+
+type Bracket = (BracketType, State);
+
+use BracketType::*;
+use State::*;
+
+impl Parseable for Bracket {
     fn parse(i: &str) -> IResult<&str, Self> {
-        let (i, grid) = separated_list1(line_ending, many1(num1::<usize>))(i)?;
-
-        let size_y = grid.len();
-        let size_x = grid[0].len();
-
-        for line in grid.iter() {
-            assert_eq!(line.len(), size_x);
-        }
-
-        Ok((
-            i,
-            Self {
-                grid,
-                size_x,
-                size_y,
-            },
-        ))
+        alt((
+            value((Round, Open), char('(')),
+            value((Round, Closed), char(')')),
+            value((Square, Open), char('[')),
+            value((Square, Closed), char(']')),
+            value((Curved, Open), char('{')),
+            value((Curved, Closed), char('}')),
+            value((Sharp, Closed), char('>')),
+            value((Sharp, Open), char('<')),
+        ))(i)
     }
 }
 
-impl Grid {
-    fn read(i: &str) -> Self {
-        if let Ok((_, parsed)) = Self::parse(i).finish() {
-            parsed
-        } else {
-            panic!("Could not parse input.");
+impl BracketType {
+    fn score(&self) -> u64 {
+        match self {
+            Round => 3,
+            Square => 57,
+            Curved => 1197,
+            Sharp => 25137,
         }
     }
 
-    fn get_low_points(&self) -> Vec<Point> {
-        let mut points = Vec::new();
-
-        for y in 0..self.size_y {
-            for x in 0..self.size_x {
-                let height = self.grid[y][x];
-
-                if y > 0 && self.grid[y - 1][x] <= height {
-                    continue;
-                }
-                if x > 0 && self.grid[y][x - 1] <= height {
-                    continue;
-                }
-                if x < self.size_x - 1 && self.grid[y][x + 1] <= height {
-                    continue;
-                }
-                if y < self.size_y - 1 && self.grid[y + 1][x] <= height {
-                        continue;
-                }
-                points.push(Point { x, y, height });
-            }
+    fn score_completion(&self) -> u64 {
+        match self {
+            Round => 1,
+            Square => 2,
+            Curved => 3,
+            Sharp => 4,
         }
-
-        points
-    }
-
-    fn get_basin(&self, point: &Point) -> HashSet<(usize, usize)> {
-        let origin = (point.x, point.y);
-
-        let mut basin_queue = BasinQueue::new(self);
-        basin_queue.checked_push(origin);
-
-        while let Some(current) = basin_queue.pop_front() {
-            if current.1 > 0 {
-                basin_queue.checked_push((current.0, current.1 - 1));
-            }
-            if current.0 > 0 {
-                basin_queue.checked_push((current.0 - 1, current.1));
-            }
-            if current.0 < self.size_x - 1 {
-                basin_queue.checked_push((current.0 + 1, current.1));
-            }
-            if current.1 < self.size_y - 1 {
-                basin_queue.checked_push((current.0, current.1 + 1));
-            }
-        }
-
-        basin_queue.basin
-    }
-
-    fn get_basin_sizes(&self) -> Vec<usize> {
-        self.get_low_points().iter().map(|p| self.get_basin(p).len()).collect()
-    }
-
-    fn get_largest_basins(&self) -> Vec<usize> {
-        let mut basin_sizes = self.get_basin_sizes();
-        basin_sizes.sort_unstable();
-        let all_but_three = basin_sizes.len() - 3;
-        basin_sizes.into_iter().skip(all_but_three).collect()
-    }
-}
-#[derive(Debug, Clone)]
-struct BasinQueue<'a> {
-    queue: VecDeque<(usize, usize)>,
-    basin: HashSet<(usize, usize)>,
-    grid: &'a Grid,
-}
-
-impl<'a> BasinQueue<'a> {
-    fn new(grid: &'a Grid) -> Self {
-        Self {
-            queue: VecDeque::new(),
-            basin: HashSet::new(),
-            grid
-        }
-    }
-
-    fn checked_push(&mut self, point: (usize, usize)) {
-        if !self.basin.contains(&point) && self.grid.grid[point.1][point.0] < 9 {
-            self.queue.push_back(point);
-            self.basin.insert(point);
-        }
-    }
-
-    fn pop_front(&mut self) -> Option<(usize, usize)> {
-        self.queue.pop_front()
     }
 }
 
-#[derive(Debug, Clone)]
-struct Point {
-    height: usize,
-    x: usize,
-    y: usize,
-}
+type BracketLine = Vec<Bracket>;
 
-impl Point {
-    fn risk_level(&self) -> usize {
-        self.height + 1
-    }
+fn parse_lines(i: &str) -> IResult<&str, Vec<BracketLine>> {
+    separated_list1(line_ending, many1(Bracket::parse))(i)
 }
 
 trait Parseable: Sized {
     fn parse(i: &str) -> IResult<&str, Self>;
-}
-
-fn num1<T: std::str::FromStr>(i: &str) -> IResult<&str, T> {
-    map(one_of("0123456789"), |c: char| {
-        c.to_string()
-            .parse::<T>()
-            .unwrap_or_else(|_| panic!("could not parse number"))
-    })(i)
 }
 
 #[cfg(test)]
@@ -209,18 +191,21 @@ mod tests {
 
     #[test]
     fn test_part1() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        let low_points = grid.get_low_points();
-        assert_eq!(low_points.len(), 4);
-        assert_eq!(low_points.iter().map(|p| p.risk_level()).sum::<usize>(), 15);
+        let lines = parse_lines(&read_to_string(PathBuf::from("debug.txt")).unwrap())
+            .finish()
+            .unwrap()
+            .1;
+
+        assert_eq!(get_score_syntax(&lines[..]), 26397);
     }
 
     #[test]
     fn test_part2() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        println!("{:#?}", grid.get_basin_sizes());
-        assert_eq!(grid.get_largest_basins().iter().product::<usize>(), 1134);
+        let lines = parse_lines(&read_to_string(PathBuf::from("debug.txt")).unwrap())
+            .finish()
+            .unwrap()
+            .1;
+
+        assert_eq!(get_score_closing(&lines[..]), 288957);
     }
 }
