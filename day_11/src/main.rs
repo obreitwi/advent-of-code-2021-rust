@@ -30,32 +30,28 @@ fn main() -> Result<()> {
     println!("Input: {}", input.display());
     let content = read_to_string(&input)?;
 
-    let grid = Grid::read(&content);
+    let mut grid = Grid::read(&content);
 
-    part1(&grid);
-    part2(&grid);
+    part1(&mut grid.clone());
+    part2(&mut grid);
     Ok(())
 }
 
-fn part1(grid: &Grid) {
-    let low_points = grid.get_low_points();
-
-    println!(
-        "part1: {} low points with risk of {}",
-        low_points.len(),
-        low_points.iter().map(|p| p.risk_level()).sum::<usize>()
-    );
+fn part1(grid: &mut Grid) {
+    grid.evolve(100);
+    println!("part 1: {} flashes", grid.flashes_total);
+}
+fn part2(grid: &mut Grid) {
+    println!("part 2: round {}", grid.find_synchronous_flash());
 }
 
-fn part2(grid: &Grid) {
-    println!("part 2: product: {}", grid.get_largest_basins().iter().product::<usize>());
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Grid {
+    grid: Vec<Vec<usize>>,
     size_x: usize,
     size_y: usize,
-    grid: Vec<Vec<usize>>,
+
+    flashes_total: usize,
 }
 
 impl Parseable for Grid {
@@ -75,6 +71,7 @@ impl Parseable for Grid {
                 grid,
                 size_x,
                 size_y,
+                flashes_total: 0,
             },
         ))
     }
@@ -89,107 +86,99 @@ impl Grid {
         }
     }
 
-    fn get_low_points(&self) -> Vec<Point> {
-        let mut points = Vec::new();
+    fn evolve(&mut self, rounds: usize) {
+        for _ in 0..rounds {
+            let mut flashed = HashSet::new();
 
-        for y in 0..self.size_y {
-            for x in 0..self.size_x {
-                let height = self.grid[y][x];
+            for y in 0..self.size_y {
+                for x in 0..self.size_x {
+                    self.juice_up(Point { x, y }, &mut flashed);
+                }
+            }
+            for Point { x, y } in flashed {
+                self.grid[y][x] = 0;
+            }
+        }
+    }
 
-                if y > 0 && self.grid[y - 1][x] <= height {
+    fn find_synchronous_flash(&mut self) -> usize {
+        let mut round = 0;
+        loop {
+            let flashes = self.flashes_total;
+            self.evolve(1);
+            round += 1;
+            if self.flashes_total - flashes == self.size_x * self.size_y {
+                return round;
+            }
+        }
+    }
+
+    fn juice_up(&mut self, point: Point, flashed: &mut HashSet<Point>) {
+        let Point { x, y } = point;
+
+        self.grid[y][x] += 1;
+        if self.grid[y][x] > 9 && !flashed.contains(&point) {
+            self.flash(point, flashed);
+        }
+    }
+
+    fn flash(&mut self, point: Point, flashed: &mut HashSet<Point>) {
+        let Point { x, y } = point;
+        self.grid[y][x] = 0;
+
+        flashed.insert(point);
+
+        self.flashes_total += 1;
+
+        let mut indices = Vec::new();
+        for dx in -1..2 {
+            for dy in -1..2 {
+                indices.push((x as i64 + dx, y as i64 + dy));
+            }
+        }
+
+        let compute_limits = |n, size| {
+            (
+                if n > 0 { n - 1 } else { n },
+                if n < size - 1 { n + 1 } else { n },
+            )
+        };
+        let (y_min, y_max) = compute_limits(y, self.size_y);
+        let (x_min, x_max) = compute_limits(x, self.size_x);
+
+        for y in y_min..y_max + 1 {
+            for x in x_min..x_max + 1 {
+                if x == point.x && y == point.y {
                     continue;
                 }
-                if x > 0 && self.grid[y][x - 1] <= height {
-                    continue;
-                }
-                if x < self.size_x - 1 && self.grid[y][x + 1] <= height {
-                    continue;
-                }
-                if y < self.size_y - 1 && self.grid[y + 1][x] <= height {
-                        continue;
-                }
-                points.push(Point { x, y, height });
+                self.juice_up(Point { x, y }, flashed);
             }
         }
-
-        points
-    }
-
-    fn get_basin(&self, point: &Point) -> HashSet<(usize, usize)> {
-        let origin = (point.x, point.y);
-
-        let mut basin_queue = BasinQueue::new(self);
-        basin_queue.checked_push(origin);
-
-        while let Some(current) = basin_queue.pop_front() {
-            if current.1 > 0 {
-                basin_queue.checked_push((current.0, current.1 - 1));
-            }
-            if current.0 > 0 {
-                basin_queue.checked_push((current.0 - 1, current.1));
-            }
-            if current.0 < self.size_x - 1 {
-                basin_queue.checked_push((current.0 + 1, current.1));
-            }
-            if current.1 < self.size_y - 1 {
-                basin_queue.checked_push((current.0, current.1 + 1));
-            }
-        }
-
-        basin_queue.basin
-    }
-
-    fn get_basin_sizes(&self) -> Vec<usize> {
-        self.get_low_points().iter().map(|p| self.get_basin(p).len()).collect()
-    }
-
-    fn get_largest_basins(&self) -> Vec<usize> {
-        let mut basin_sizes = self.get_basin_sizes();
-        basin_sizes.sort_unstable();
-        let all_but_three = basin_sizes.len() - 3;
-        basin_sizes.into_iter().skip(all_but_three).collect()
-    }
-}
-#[derive(Debug, Clone)]
-struct BasinQueue<'a> {
-    queue: VecDeque<(usize, usize)>,
-    basin: HashSet<(usize, usize)>,
-    grid: &'a Grid,
-}
-
-impl<'a> BasinQueue<'a> {
-    fn new(grid: &'a Grid) -> Self {
-        Self {
-            queue: VecDeque::new(),
-            basin: HashSet::new(),
-            grid
-        }
-    }
-
-    fn checked_push(&mut self, point: (usize, usize)) {
-        if !self.basin.contains(&point) && self.grid.grid[point.1][point.0] < 9 {
-            self.queue.push_back(point);
-            self.basin.insert(point);
-        }
-    }
-
-    fn pop_front(&mut self) -> Option<(usize, usize)> {
-        self.queue.pop_front()
     }
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Display for Grid {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // The `f` value implements the `Write` trait, which is what the
+        // write! macro is expecting. Note that this formatting ignores the
+        // various flags provided to format strings.
+        for line in self.grid.iter() {
+            for elem in line.iter() {
+                write!(f, "{}", elem)?;
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 struct Point {
-    height: usize,
     x: usize,
     y: usize,
 }
 
-impl Point {
-    fn risk_level(&self) -> usize {
-        self.height + 1
-    }
-}
+impl Point {}
 
 trait Parseable: Sized {
     fn parse(i: &str) -> IResult<&str, Self>;
@@ -208,19 +197,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_part1() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        let low_points = grid.get_low_points();
-        assert_eq!(low_points.len(), 4);
-        assert_eq!(low_points.iter().map(|p| p.risk_level()).sum::<usize>(), 15);
+    fn test_part1() -> Result<()> {
+        let mut grid = Grid::read(&read_to_string(PathBuf::from("debug.txt"))?);
+
+        assert_eq!(grid.size_x, 10);
+        assert_eq!(grid.size_y, 10);
+
+        grid.evolve(100);
+        assert_eq!(grid.flashes_total, 1656);
+        Ok(())
     }
 
     #[test]
-    fn test_part2() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        println!("{:#?}", grid.get_basin_sizes());
-        assert_eq!(grid.get_largest_basins().iter().product::<usize>(), 1134);
+    fn test_part2() -> Result<()> {
+        let mut grid = Grid::read(&read_to_string(PathBuf::from("debug.txt"))?);
+
+        assert_eq!(grid.find_synchronous_flash(), 195);
+        Ok(())
     }
 }
