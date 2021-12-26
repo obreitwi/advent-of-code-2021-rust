@@ -12,6 +12,7 @@ use nom::{
     Err::{Failure, Incomplete},
     ErrorConvert, Finish, IResult,
 };
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -30,57 +31,97 @@ fn main() -> Result<()> {
     println!("Input: {}", input.display());
     let content = read_to_string(&input)?;
 
-    let grid = Grid::read(&content);
+    let ct = Connectome::read(&content);
 
-    part1(&grid);
-    part2(&grid);
+    part1(&ct);
+    part2(&ct);
     Ok(())
 }
 
-fn part1(grid: &Grid) {
-    let low_points = grid.get_low_points();
-
-    println!(
-        "part1: {} low points with risk of {}",
-        low_points.len(),
-        low_points.iter().map(|p| p.risk_level()).sum::<usize>()
-    );
+fn part1(ct: &Connectome) {
+    let paths = ct.get_paths();
+    println!("part 1: There are {} paths.", paths.len());
 }
 
-fn part2(grid: &Grid) {
-    println!("part 2: product: {}", grid.get_largest_basins().iter().product::<usize>());
+fn part2(ct: &Connectome) {
+    todo!()
 }
 
 #[derive(Debug, Clone)]
-struct Grid {
-    size_x: usize,
-    size_y: usize,
-    grid: Vec<Vec<usize>>,
+struct Connectome {
+    reachable: HashMap<Location, HashSet<Location>>,
 }
 
-impl Parseable for Grid {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct Location {
+    label: Cow<'static, str>,
+    size: LocationSize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum LocationSize {
+    Big,
+    Small,
+}
+
+static START: Location = Location {
+    label: Cow::Borrowed("start"),
+    size: LocationSize::Small,
+};
+static END: Location = Location {
+    label: Cow::Borrowed("end"),
+    size: LocationSize::Small,
+};
+
+trait Parseable: Sized {
+    fn parse(i: &str) -> IResult<&str, Self>;
+}
+
+type RawRoute = (Location, Location);
+
+impl Parseable for Connectome {
     fn parse(i: &str) -> IResult<&str, Self> {
-        let (i, grid) = separated_list1(line_ending, many1(num1::<usize>))(i)?;
+        let (i, routes) = separated_list1(line_ending, RawRoute::parse)(i)?;
 
-        let size_y = grid.len();
-        let size_x = grid[0].len();
-
-        for line in grid.iter() {
-            assert_eq!(line.len(), size_x);
+        let mut reachable: HashMap<Location, HashSet<Location>> = HashMap::new();
+        for route in routes {
+            reachable
+                .entry(route.0.clone())
+                .or_default()
+                .insert(route.1.clone());
+            reachable.entry(route.1).or_default().insert(route.0);
         }
+
+        Ok((i, Self { reachable }))
+    }
+}
+
+impl Parseable for RawRoute {
+    fn parse(i: &str) -> IResult<&str, Self> {
+        separated_pair(Location::parse, char('-'), Location::parse)(i)
+    }
+}
+
+impl Parseable for Location {
+    fn parse(i: &str) -> IResult<&str, Self> {
+        let (i, label) = alpha1(i)?;
+        let size = if label.chars().next().unwrap().is_uppercase() {
+            LocationSize::Big
+        } else {
+            LocationSize::Small
+        };
 
         Ok((
             i,
             Self {
-                grid,
-                size_x,
-                size_y,
+                label: Cow::Owned(label.to_owned()),
+                size,
             },
         ))
     }
 }
 
-impl Grid {
+impl Connectome {
     fn read(i: &str) -> Self {
         if let Ok((_, parsed)) = Self::parse(i).finish() {
             parsed
@@ -89,118 +130,80 @@ impl Grid {
         }
     }
 
-    fn get_low_points(&self) -> Vec<Point> {
-        let mut points = Vec::new();
+    pub fn get_paths(&self) -> HashSet<Route> {
+        self.get_paths_inner(Route::from(START.clone()))
+    }
 
-        for y in 0..self.size_y {
-            for x in 0..self.size_x {
-                let height = self.grid[y][x];
+    fn get_paths_inner(&self, current: Route) -> HashSet<Route> {
+        let visited = current.visited_by(LocationSize::Small);
 
-                if y > 0 && self.grid[y - 1][x] <= height {
-                    continue;
-                }
-                if x > 0 && self.grid[y][x - 1] <= height {
-                    continue;
-                }
-                if x < self.size_x - 1 && self.grid[y][x + 1] <= height {
-                    continue;
-                }
-                if y < self.size_y - 1 && self.grid[y + 1][x] <= height {
-                        continue;
-                }
-                points.push(Point { x, y, height });
+        let possible = self.reachable[current.locations.last().unwrap()]
+            .iter()
+            .filter(|l| !visited.contains(l))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let mut routes = HashSet::new();
+
+        for next in possible {
+            let new = current.add(next);
+
+            if new.is_complete() {
+                routes.insert(new);
+            } else {
+                routes.extend(self.get_paths_inner(new));
             }
         }
-
-        points
-    }
-
-    fn get_basin(&self, point: &Point) -> HashSet<(usize, usize)> {
-        let origin = (point.x, point.y);
-
-        let mut basin_queue = BasinQueue::new(self);
-        basin_queue.checked_push(origin);
-
-        while let Some(current) = basin_queue.pop_front() {
-            if current.1 > 0 {
-                basin_queue.checked_push((current.0, current.1 - 1));
-            }
-            if current.0 > 0 {
-                basin_queue.checked_push((current.0 - 1, current.1));
-            }
-            if current.0 < self.size_x - 1 {
-                basin_queue.checked_push((current.0 + 1, current.1));
-            }
-            if current.1 < self.size_y - 1 {
-                basin_queue.checked_push((current.0, current.1 + 1));
-            }
-        }
-
-        basin_queue.basin
-    }
-
-    fn get_basin_sizes(&self) -> Vec<usize> {
-        self.get_low_points().iter().map(|p| self.get_basin(p).len()).collect()
-    }
-
-    fn get_largest_basins(&self) -> Vec<usize> {
-        let mut basin_sizes = self.get_basin_sizes();
-        basin_sizes.sort_unstable();
-        let all_but_three = basin_sizes.len() - 3;
-        basin_sizes.into_iter().skip(all_but_three).collect()
+        routes
     }
 }
-#[derive(Debug, Clone)]
-struct BasinQueue<'a> {
-    queue: VecDeque<(usize, usize)>,
-    basin: HashSet<(usize, usize)>,
-    grid: &'a Grid,
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct Route {
+    pub locations: Vec<Location>,
 }
 
-impl<'a> BasinQueue<'a> {
-    fn new(grid: &'a Grid) -> Self {
+impl Route {
+    fn is_complete(&self) -> bool {
+        self.locations.last().map(|l| *l == END).unwrap_or(false)
+    }
+
+    fn add(&self, to_add: Location) -> Route {
+        let mut locations = self.locations.clone();
+        locations.push(to_add);
+        Self { locations }
+    }
+
+    pub fn visited_by(&self, size: LocationSize) -> HashSet<Location> {
+        self.locations
+            .iter()
+            .filter(|l| l.size == size)
+            .cloned()
+            .collect()
+    }
+}
+
+impl From<Location> for Route {
+    fn from(location: Location) -> Route {
         Self {
-            queue: VecDeque::new(),
-            basin: HashSet::new(),
-            grid
+            locations: vec![location],
         }
     }
+}
 
-    fn checked_push(&mut self, point: (usize, usize)) {
-        if !self.basin.contains(&point) && self.grid.grid[point.1][point.0] < 9 {
-            self.queue.push_back(point);
-            self.basin.insert(point);
+impl fmt::Display for Route {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // The `f` value implements the `Write` trait, which is what the
+        // write! macro is expecting. Note that this formatting ignores the
+        // various flags provided to format strings.
+        if let Some(first) = self.locations.first() {
+            write!(f, "{}", first.label)?;
         }
+        for location in self.locations.iter().skip(1) {
+            write!(f, " -> {}", location.label)?;
+        }
+        Ok(())
     }
-
-    fn pop_front(&mut self) -> Option<(usize, usize)> {
-        self.queue.pop_front()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Point {
-    height: usize,
-    x: usize,
-    y: usize,
-}
-
-impl Point {
-    fn risk_level(&self) -> usize {
-        self.height + 1
-    }
-}
-
-trait Parseable: Sized {
-    fn parse(i: &str) -> IResult<&str, Self>;
-}
-
-fn num1<T: std::str::FromStr>(i: &str) -> IResult<&str, T> {
-    map(one_of("0123456789"), |c: char| {
-        c.to_string()
-            .parse::<T>()
-            .unwrap_or_else(|_| panic!("could not parse number"))
-    })(i)
 }
 
 #[cfg(test)]
@@ -209,18 +212,23 @@ mod tests {
 
     #[test]
     fn test_part1() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        let low_points = grid.get_low_points();
-        assert_eq!(low_points.len(), 4);
-        assert_eq!(low_points.iter().map(|p| p.risk_level()).sum::<usize>(), 15);
+        let content = read_to_string(PathBuf::from("debug-10.txt")).unwrap();
+        let connections = Connectome::read(&content);
+        println!("{:#?}", connections);
+        for conn in connections.get_paths() {
+            println!("{}", conn);
+        }
+        assert_eq!(connections.get_paths().len(), 10);
+
+        let content = read_to_string(PathBuf::from("debug-19.txt")).unwrap();
+        let connections = Connectome::read(&content);
+        assert_eq!(connections.get_paths().len(), 19);
+
+        let content = read_to_string(PathBuf::from("debug-226.txt")).unwrap();
+        let connections = Connectome::read(&content);
+        assert_eq!(connections.get_paths().len(), 226);
     }
 
     #[test]
-    fn test_part2() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        println!("{:#?}", grid.get_basin_sizes());
-        assert_eq!(grid.get_largest_basins().iter().product::<usize>(), 1134);
-    }
+    fn test_part2() {}
 }
