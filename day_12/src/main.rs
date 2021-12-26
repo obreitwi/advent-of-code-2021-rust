@@ -44,7 +44,8 @@ fn part1(ct: &Connectome) {
 }
 
 fn part2(ct: &Connectome) {
-    todo!()
+    let paths = ct.get_paths_twice();
+    println!("part 2: There are {} paths.", paths.len());
 }
 
 #[derive(Debug, Clone)]
@@ -131,11 +132,21 @@ impl Connectome {
     }
 
     pub fn get_paths(&self) -> HashSet<Route> {
-        self.get_paths_inner(Route::from(START.clone()))
+        self.get_paths_inner(Route::from(START.clone()), false)
     }
 
-    fn get_paths_inner(&self, current: Route) -> HashSet<Route> {
-        let visited = current.visited_by(LocationSize::Small);
+    pub fn get_paths_twice(&self) -> HashSet<Route> {
+        self.get_paths_inner(Route::from(START.clone()), true)
+    }
+
+    fn get_paths_inner(&self, current: Route, allow_twice: bool) -> HashSet<Route> {
+        let visited = if !allow_twice || current.visit_twice.is_some() {
+            current.visited_by(LocationSize::Small)
+        } else {
+            let mut hs = HashSet::new();
+            hs.insert(START.clone());
+            hs
+        };
 
         let possible = self.reachable[current.locations.last().unwrap()]
             .iter()
@@ -151,7 +162,7 @@ impl Connectome {
             if new.is_complete() {
                 routes.insert(new);
             } else {
-                routes.extend(self.get_paths_inner(new));
+                routes.extend(self.get_paths_inner(new, allow_twice));
             }
         }
         routes
@@ -161,6 +172,7 @@ impl Connectome {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Route {
     pub locations: Vec<Location>,
+    pub visit_twice: Option<Location>,
 }
 
 impl Route {
@@ -170,8 +182,19 @@ impl Route {
 
     fn add(&self, to_add: Location) -> Route {
         let mut locations = self.locations.clone();
+        let visit_twice = if to_add.size == LocationSize::Small && locations.contains(&to_add) {
+            if self.visit_twice.is_some() {
+                panic!("cannot have two locations visited twice");
+            }
+            Some(to_add.clone())
+        } else {
+            self.visit_twice.clone()
+        };
         locations.push(to_add);
-        Self { locations }
+        Self {
+            locations,
+            visit_twice,
+        }
     }
 
     pub fn visited_by(&self, size: LocationSize) -> HashSet<Location> {
@@ -187,6 +210,7 @@ impl From<Location> for Route {
     fn from(location: Location) -> Route {
         Self {
             locations: vec![location],
+            visit_twice: None,
         }
     }
 }
@@ -230,5 +254,17 @@ mod tests {
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let content = read_to_string(PathBuf::from("debug-10.txt")).unwrap();
+        let connections = Connectome::read(&content);
+        assert_eq!(connections.get_paths_twice().len(), 36);
+
+        let content = read_to_string(PathBuf::from("debug-19.txt")).unwrap();
+        let connections = Connectome::read(&content);
+        assert_eq!(connections.get_paths_twice().len(), 103);
+
+        let content = read_to_string(PathBuf::from("debug-226.txt")).unwrap();
+        let connections = Connectome::read(&content);
+        assert_eq!(connections.get_paths_twice().len(), 3509);
+    }
 }
