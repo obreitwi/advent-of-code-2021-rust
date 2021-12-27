@@ -30,164 +30,54 @@ fn main() -> Result<()> {
     println!("Input: {}", input.display());
     let content = read_to_string(&input)?;
 
-    let grid = Grid::read(&content);
+    let (i, points) = Points::parse(&content).finish().unwrap();
+    let (_, instructions) = Vec::<Fold>::parse(i).finish().unwrap();
 
-    part1(&grid);
-    part2(&grid);
+    part1(&points, instructions[0].clone());
+    part2(&points, &instructions[..]);
     Ok(())
 }
 
-fn part1(grid: &Grid) {
-    let low_points = grid.get_low_points();
-
-    println!(
-        "part1: {} low points with risk of {}",
-        low_points.len(),
-        low_points.iter().map(|p| p.risk_level()).sum::<usize>()
-    );
+fn part1(points: &Points, instruction: Fold) {
+    let points = instruction.apply(points);
+    println!("part 1: There are {} points", points.len());
 }
 
-fn part2(grid: &Grid) {
-    println!("part 2: product: {}", grid.get_largest_basins().iter().product::<usize>());
+fn part2(points: &Points, instructions: &[Fold]) {
+    let mut points = points.clone();
+    for instr in instructions.iter() {
+        points = instr.apply(&points);
+    }
+    println!("part2:");
+    print_paper(&points);
 }
 
-#[derive(Debug, Clone)]
-struct Grid {
-    size_x: usize,
-    size_y: usize,
-    grid: Vec<Vec<usize>>,
-}
+type Points = HashSet<(u64, u64)>;
 
-impl Parseable for Grid {
+fn print_paper(points: &Points) {
+    let max_x = points.iter().map(|p| p.0).max().unwrap();
+    let max_y = points.iter().map(|p| p.1).max().unwrap();
+
+    for y in 0..(max_y+1) {
+        for x in 0..(max_x+1) {
+            if points.contains(&(x, y)) {
+                print!("#")
+            }
+            else {
+                print!(".")
+            }
+        }
+        println!()
+    }
+}
+impl Parseable for Points {
     fn parse(i: &str) -> IResult<&str, Self> {
-        let (i, grid) = separated_list1(line_ending, many1(num1::<usize>))(i)?;
+        let (i, vec) = separated_list1(
+            line_ending,
+            separated_pair(num1::<u64>, char(','), num1::<u64>),
+        )(i)?;
 
-        let size_y = grid.len();
-        let size_x = grid[0].len();
-
-        for line in grid.iter() {
-            assert_eq!(line.len(), size_x);
-        }
-
-        Ok((
-            i,
-            Self {
-                grid,
-                size_x,
-                size_y,
-            },
-        ))
-    }
-}
-
-impl Grid {
-    fn read(i: &str) -> Self {
-        if let Ok((_, parsed)) = Self::parse(i).finish() {
-            parsed
-        } else {
-            panic!("Could not parse input.");
-        }
-    }
-
-    fn get_low_points(&self) -> Vec<Point> {
-        let mut points = Vec::new();
-
-        for y in 0..self.size_y {
-            for x in 0..self.size_x {
-                let height = self.grid[y][x];
-
-                if y > 0 && self.grid[y - 1][x] <= height {
-                    continue;
-                }
-                if x > 0 && self.grid[y][x - 1] <= height {
-                    continue;
-                }
-                if x < self.size_x - 1 && self.grid[y][x + 1] <= height {
-                    continue;
-                }
-                if y < self.size_y - 1 && self.grid[y + 1][x] <= height {
-                        continue;
-                }
-                points.push(Point { x, y, height });
-            }
-        }
-
-        points
-    }
-
-    fn get_basin(&self, point: &Point) -> HashSet<(usize, usize)> {
-        let origin = (point.x, point.y);
-
-        let mut basin_queue = BasinQueue::new(self);
-        basin_queue.checked_push(origin);
-
-        while let Some(current) = basin_queue.pop_front() {
-            if current.1 > 0 {
-                basin_queue.checked_push((current.0, current.1 - 1));
-            }
-            if current.0 > 0 {
-                basin_queue.checked_push((current.0 - 1, current.1));
-            }
-            if current.0 < self.size_x - 1 {
-                basin_queue.checked_push((current.0 + 1, current.1));
-            }
-            if current.1 < self.size_y - 1 {
-                basin_queue.checked_push((current.0, current.1 + 1));
-            }
-        }
-
-        basin_queue.basin
-    }
-
-    fn get_basin_sizes(&self) -> Vec<usize> {
-        self.get_low_points().iter().map(|p| self.get_basin(p).len()).collect()
-    }
-
-    fn get_largest_basins(&self) -> Vec<usize> {
-        let mut basin_sizes = self.get_basin_sizes();
-        basin_sizes.sort_unstable();
-        let all_but_three = basin_sizes.len() - 3;
-        basin_sizes.into_iter().skip(all_but_three).collect()
-    }
-}
-#[derive(Debug, Clone)]
-struct BasinQueue<'a> {
-    queue: VecDeque<(usize, usize)>,
-    basin: HashSet<(usize, usize)>,
-    grid: &'a Grid,
-}
-
-impl<'a> BasinQueue<'a> {
-    fn new(grid: &'a Grid) -> Self {
-        Self {
-            queue: VecDeque::new(),
-            basin: HashSet::new(),
-            grid
-        }
-    }
-
-    fn checked_push(&mut self, point: (usize, usize)) {
-        if !self.basin.contains(&point) && self.grid.grid[point.1][point.0] < 9 {
-            self.queue.push_back(point);
-            self.basin.insert(point);
-        }
-    }
-
-    fn pop_front(&mut self) -> Option<(usize, usize)> {
-        self.queue.pop_front()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Point {
-    height: usize,
-    x: usize,
-    y: usize,
-}
-
-impl Point {
-    fn risk_level(&self) -> usize {
-        self.height + 1
+        Ok((i, vec.into_iter().collect()))
     }
 }
 
@@ -195,10 +85,53 @@ trait Parseable: Sized {
     fn parse(i: &str) -> IResult<&str, Self>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Fold {
+    Horizontal(u64),
+    Vertical(u64),
+}
+
+impl Parseable for Fold {
+    fn parse(i: &str) -> IResult<&str, Self> {
+        alt((Fold::parse_vertical, Fold::parse_horizontal))(i)
+    }
+}
+
+impl Parseable for Vec<Fold> {
+    fn parse(i: &str) -> IResult<&str, Self> {
+        let (i, _) = many0(line_ending)(i)?;
+        separated_list1(line_ending, Fold::parse)(i)
+    }
+}
+
+impl Fold {
+    fn parse_vertical(i: &str) -> IResult<&str, Self> {
+        let (i, _) = tag("fold along y=")(i)?;
+        map(num1, Self::Vertical)(i)
+    }
+
+    fn parse_horizontal(i: &str) -> IResult<&str, Self> {
+        let (i, _) = tag("fold along x=")(i)?;
+        map(num1, Self::Horizontal)(i)
+    }
+
+    pub fn apply(&self, points: &Points) -> Points {
+        match self {
+            Self::Horizontal(fold_x) => points
+                .iter()
+                .map(|(x, y)| (if x < fold_x { *x } else { *fold_x * 2 - x }, *y))
+                .collect(),
+            Self::Vertical(fold_y) => points
+                .iter()
+                .map(|(x, y)| (*x, if y < fold_y { *y } else { *fold_y * 2 - y }))
+                .collect(),
+        }
+    }
+}
+
 fn num1<T: std::str::FromStr>(i: &str) -> IResult<&str, T> {
-    map(one_of("0123456789"), |c: char| {
-        c.to_string()
-            .parse::<T>()
+    map(digit1, |s: &str| {
+            s.parse::<T>()
             .unwrap_or_else(|_| panic!("could not parse number"))
     })(i)
 }
@@ -210,17 +143,19 @@ mod tests {
     #[test]
     fn test_part1() {
         let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        let low_points = grid.get_low_points();
-        assert_eq!(low_points.len(), 4);
-        assert_eq!(low_points.iter().map(|p| p.risk_level()).sum::<usize>(), 15);
+        let (i, points) = Points::parse(&content).finish().unwrap();
+
+        println!("{:#?}", points);
+
+        assert_eq!(points.len(), 18);
+
+        let folds = Vec::<Fold>::parse(i).finish().unwrap().1;
+
+        assert_eq!(folds[0], Fold::Vertical(7));
+        assert_eq!(folds[0].apply(&points).len(), 17);
     }
 
     #[test]
     fn test_part2() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        println!("{:#?}", grid.get_basin_sizes());
-        assert_eq!(grid.get_largest_basins().iter().product::<usize>(), 1134);
     }
 }
