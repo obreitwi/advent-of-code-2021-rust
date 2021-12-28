@@ -33,7 +33,7 @@ fn main() -> Result<()> {
     let polymerizer = Polymerizer::parse(&content).finish().unwrap().1;
 
     part1(&polymerizer);
-    // part2(&polymerizer);
+    part2(&polymerizer);
     Ok(())
 }
 
@@ -42,17 +42,17 @@ fn part1(poly: &Polymerizer) {
     println!("part 1: {}", limits.1 - limits.0);
 }
 
-// fn part2(poly: &Polymerizer) {
-    // let limits = poly.grow(40).find_limits();
-    // println!("part 2: {}", limits.1 - limits.0);
-// }
+fn part2(poly: &Polymerizer) {
+    let limits = poly.grow_stats(40).find_limits();
+    println!("part 2: {}", limits.1 - limits.0);
+}
 
 #[derive(Debug, Clone)]
 struct Polymerizer {
     template: Vec<PolyElement>,
     rules: Vec<Rule>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 struct PolyElement(char);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -60,6 +60,12 @@ struct Rule {
     first: PolyElement,
     second: PolyElement,
     result: PolyElement,
+}
+
+struct PolymerStats {
+    counts: HashMap<(PolyElement, PolyElement), usize>,
+    first: PolyElement,
+    last: PolyElement,
 }
 
 type Polymer = Vec<PolyElement>;
@@ -75,7 +81,7 @@ impl Polymerizer {
                 let last = grown.last().unwrap();
                 for r in self.rules.iter() {
                     if r.applies(last, &next) {
-                        grown.push(r.result.clone());
+                        grown.push(r.result);
                         break;
                     }
                 }
@@ -85,11 +91,50 @@ impl Polymerizer {
         }
         polymer
     }
+
+    fn grow_stats(&self, steps: usize) -> PolymerStats {
+        let mut counts = self.template_pairs();
+        for _ in 0..steps {
+            let mut updated = HashMap::new();
+            for r in self.rules.iter() {
+                if let Some(count) = counts.get(&r.pair()) {
+                    for pair in r.produces() {
+                        *updated.entry(pair).or_insert(0) += count;
+                    }
+                }
+            }
+            counts = updated;
+        }
+        PolymerStats {
+            counts,
+            first: *self.template.first().unwrap(),
+            last: *self.template.last().unwrap(),
+        }
+    }
+
+    fn template_pairs(&self) -> HashMap<(PolyElement, PolyElement), usize> {
+        let mut iter = self.template.iter().cloned();
+        let mut previous = iter.next().unwrap();
+
+        iter.fold(HashMap::new(), |mut counts, next| {
+            *counts.entry((previous, next)).or_insert(0) += 1;
+            previous = next;
+            counts
+        })
+    }
 }
 
 impl Rule {
     fn applies(&self, first: &PolyElement, second: &PolyElement) -> bool {
         first == &self.first && second == &self.second
+    }
+
+    fn pair(&self) -> (PolyElement, PolyElement) {
+        (self.first, self.second)
+    }
+
+    fn produces(&self) -> [(PolyElement, PolyElement); 2] {
+        [(self.first, self.result), (self.result, self.second)]
     }
 }
 
@@ -140,12 +185,31 @@ impl Limits for Polymer {
     fn find_limits(&self) -> (usize, usize) {
         let mut counts = HashMap::<PolyElement, usize>::new();
         for elem in self.iter() {
-            *counts.entry(elem.clone()).or_insert(0) += 1;
+            *counts.entry(*elem).or_insert(0) += 1;
         }
         let max = counts.iter().max_by(|l, r| l.1.cmp(r.1)).unwrap().1;
         let min = counts.iter().min_by(|l, r| l.1.cmp(r.1)).unwrap().1;
 
         (*min, *max)
+    }
+}
+
+impl Limits for PolymerStats {
+    fn find_limits(&self) -> (usize, usize) {
+        let mut counts = HashMap::<PolyElement, usize>::new();
+        for ((poly1, poly2), count) in self.counts.iter() {
+            *counts.entry(*poly1).or_insert(0) += count;
+            *counts.entry(*poly2).or_insert(0) += count;
+        }
+        // we count everything twice, except for the very first and very last element:
+        *counts.get_mut(&self.first).unwrap() += 1;
+        *counts.get_mut(&self.last).unwrap() += 1;
+
+        // we count everything twice
+        let max = counts.iter().max_by(|l, r| l.1.cmp(r.1)).unwrap().1 / 2;
+        let min = counts.iter().min_by(|l, r| l.1.cmp(r.1)).unwrap().1 / 2;
+
+        (min, max)
     }
 }
 
@@ -168,5 +232,10 @@ mod tests {
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
+        let polymerizer = Polymerizer::parse(&content).finish().unwrap().1;
+
+        assert_eq!(polymerizer.grow_stats(10).find_limits(), (161, 1749));
+    }
 }
