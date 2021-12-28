@@ -6,7 +6,7 @@ use nom::{
     character::complete::{
         alpha1, anychar, char, digit1, line_ending, multispace1, none_of, one_of, space0, space1,
     },
-    combinator::{map, map_res, value},
+    combinator::{map, map_res, value, verify},
     multi::{many0, many1, separated_list1},
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
     Err::{Failure, Incomplete},
@@ -30,177 +30,127 @@ fn main() -> Result<()> {
     println!("Input: {}", input.display());
     let content = read_to_string(&input)?;
 
-    let grid = Grid::read(&content);
+    let polymerizer = Polymerizer::parse(&content).finish().unwrap().1;
 
-    part1(&grid);
-    part2(&grid);
+    part1(&polymerizer);
+    // part2(&polymerizer);
     Ok(())
 }
 
-fn part1(grid: &Grid) {
-    let low_points = grid.get_low_points();
-
-    println!(
-        "part1: {} low points with risk of {}",
-        low_points.len(),
-        low_points.iter().map(|p| p.risk_level()).sum::<usize>()
-    );
+fn part1(poly: &Polymerizer) {
+    let limits = poly.grow(10).find_limits();
+    println!("part 1: {}", limits.1 - limits.0);
 }
 
-fn part2(grid: &Grid) {
-    println!("part 2: product: {}", grid.get_largest_basins().iter().product::<usize>());
-}
+// fn part2(poly: &Polymerizer) {
+    // let limits = poly.grow(40).find_limits();
+    // println!("part 2: {}", limits.1 - limits.0);
+// }
 
 #[derive(Debug, Clone)]
-struct Grid {
-    size_x: usize,
-    size_y: usize,
-    grid: Vec<Vec<usize>>,
+struct Polymerizer {
+    template: Vec<PolyElement>,
+    rules: Vec<Rule>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PolyElement(char);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct Rule {
+    first: PolyElement,
+    second: PolyElement,
+    result: PolyElement,
 }
 
-impl Parseable for Grid {
-    fn parse(i: &str) -> IResult<&str, Self> {
-        let (i, grid) = separated_list1(line_ending, many1(num1::<usize>))(i)?;
+type Polymer = Vec<PolyElement>;
 
-        let size_y = grid.len();
-        let size_x = grid[0].len();
+impl Polymerizer {
+    fn grow(&self, steps: usize) -> Polymer {
+        let mut polymer = self.template.clone();
+        for _ in 0..steps {
+            let mut iter = polymer.into_iter();
+            let first = iter.next().unwrap();
 
-        for line in grid.iter() {
-            assert_eq!(line.len(), size_x);
+            polymer = iter.fold(vec![first], |mut grown, next| {
+                let last = grown.last().unwrap();
+                for r in self.rules.iter() {
+                    if r.applies(last, &next) {
+                        grown.push(r.result.clone());
+                        break;
+                    }
+                }
+                grown.push(next);
+                grown
+            });
         }
+        polymer
+    }
+}
+
+impl Rule {
+    fn applies(&self, first: &PolyElement, second: &PolyElement) -> bool {
+        first == &self.first && second == &self.second
+    }
+}
+
+impl Parseable for Polymerizer {
+    fn parse(i: &str) -> IResult<&str, Self> {
+        let (i, (template, _, rules)) = tuple((
+            many1(PolyElement::parse),
+            many1(line_ending),
+            many1(Rule::parse),
+        ))(i)?;
+
+        Ok((i, Self { template, rules }))
+    }
+}
+
+impl Parseable for PolyElement {
+    fn parse(i: &str) -> IResult<&str, Self> {
+        map(verify(anychar, |c| c.is_uppercase()), PolyElement)(i)
+    }
+}
+
+impl Parseable for Rule {
+    fn parse(i: &str) -> IResult<&str, Self> {
+        let (i, (first, second, _, result, _)) = tuple((
+            PolyElement::parse,
+            PolyElement::parse,
+            tag(" -> "),
+            PolyElement::parse,
+            line_ending,
+        ))(i)?;
 
         Ok((
             i,
             Self {
-                grid,
-                size_x,
-                size_y,
+                first,
+                second,
+                result,
             },
         ))
     }
 }
 
-impl Grid {
-    fn read(i: &str) -> Self {
-        if let Ok((_, parsed)) = Self::parse(i).finish() {
-            parsed
-        } else {
-            panic!("Could not parse input.");
-        }
-    }
-
-    fn get_low_points(&self) -> Vec<Point> {
-        let mut points = Vec::new();
-
-        for y in 0..self.size_y {
-            for x in 0..self.size_x {
-                let height = self.grid[y][x];
-
-                if y > 0 && self.grid[y - 1][x] <= height {
-                    continue;
-                }
-                if x > 0 && self.grid[y][x - 1] <= height {
-                    continue;
-                }
-                if x < self.size_x - 1 && self.grid[y][x + 1] <= height {
-                    continue;
-                }
-                if y < self.size_y - 1 && self.grid[y + 1][x] <= height {
-                        continue;
-                }
-                points.push(Point { x, y, height });
-            }
-        }
-
-        points
-    }
-
-    fn get_basin(&self, point: &Point) -> HashSet<(usize, usize)> {
-        let origin = (point.x, point.y);
-
-        let mut basin_queue = BasinQueue::new(self);
-        basin_queue.checked_push(origin);
-
-        while let Some(current) = basin_queue.pop_front() {
-            if current.1 > 0 {
-                basin_queue.checked_push((current.0, current.1 - 1));
-            }
-            if current.0 > 0 {
-                basin_queue.checked_push((current.0 - 1, current.1));
-            }
-            if current.0 < self.size_x - 1 {
-                basin_queue.checked_push((current.0 + 1, current.1));
-            }
-            if current.1 < self.size_y - 1 {
-                basin_queue.checked_push((current.0, current.1 + 1));
-            }
-        }
-
-        basin_queue.basin
-    }
-
-    fn get_basin_sizes(&self) -> Vec<usize> {
-        self.get_low_points().iter().map(|p| self.get_basin(p).len()).collect()
-    }
-
-    fn get_largest_basins(&self) -> Vec<usize> {
-        let mut basin_sizes = self.get_basin_sizes();
-        basin_sizes.sort_unstable();
-        let all_but_three = basin_sizes.len() - 3;
-        basin_sizes.into_iter().skip(all_but_three).collect()
-    }
-}
-#[derive(Debug, Clone)]
-struct BasinQueue<'a> {
-    queue: VecDeque<(usize, usize)>,
-    basin: HashSet<(usize, usize)>,
-    grid: &'a Grid,
+trait Limits {
+    fn find_limits(&self) -> (usize, usize);
 }
 
-impl<'a> BasinQueue<'a> {
-    fn new(grid: &'a Grid) -> Self {
-        Self {
-            queue: VecDeque::new(),
-            basin: HashSet::new(),
-            grid
+impl Limits for Polymer {
+    fn find_limits(&self) -> (usize, usize) {
+        let mut counts = HashMap::<PolyElement, usize>::new();
+        for elem in self.iter() {
+            *counts.entry(elem.clone()).or_insert(0) += 1;
         }
-    }
+        let max = counts.iter().max_by(|l, r| l.1.cmp(r.1)).unwrap().1;
+        let min = counts.iter().min_by(|l, r| l.1.cmp(r.1)).unwrap().1;
 
-    fn checked_push(&mut self, point: (usize, usize)) {
-        if !self.basin.contains(&point) && self.grid.grid[point.1][point.0] < 9 {
-            self.queue.push_back(point);
-            self.basin.insert(point);
-        }
-    }
-
-    fn pop_front(&mut self) -> Option<(usize, usize)> {
-        self.queue.pop_front()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Point {
-    height: usize,
-    x: usize,
-    y: usize,
-}
-
-impl Point {
-    fn risk_level(&self) -> usize {
-        self.height + 1
+        (*min, *max)
     }
 }
 
 trait Parseable: Sized {
     fn parse(i: &str) -> IResult<&str, Self>;
-}
-
-fn num1<T: std::str::FromStr>(i: &str) -> IResult<&str, T> {
-    map(one_of("0123456789"), |c: char| {
-        c.to_string()
-            .parse::<T>()
-            .unwrap_or_else(|_| panic!("could not parse number"))
-    })(i)
 }
 
 #[cfg(test)]
@@ -210,17 +160,13 @@ mod tests {
     #[test]
     fn test_part1() {
         let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        let low_points = grid.get_low_points();
-        assert_eq!(low_points.len(), 4);
-        assert_eq!(low_points.iter().map(|p| p.risk_level()).sum::<usize>(), 15);
+        let polymerizer = Polymerizer::parse(&content).finish().unwrap().1;
+
+        assert_eq!(polymerizer.grow(5).len(), 97);
+        assert_eq!(polymerizer.grow(10).len(), 3073);
+        assert_eq!(polymerizer.grow(10).find_limits(), (161, 1749));
     }
 
     #[test]
-    fn test_part2() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        println!("{:#?}", grid.get_basin_sizes());
-        assert_eq!(grid.get_largest_basins().iter().product::<usize>(), 1134);
-    }
+    fn test_part2() {}
 }
