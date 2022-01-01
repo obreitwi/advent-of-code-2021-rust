@@ -46,7 +46,14 @@ fn part1(grid: &Grid) {
     )
 }
 
-fn part2(grid: &Grid) {}
+fn part2(grid: &Grid) {
+    let grid = grid.grow(5);
+    let parent_cum_risk = grid.get_lowest_risk_paths();
+    println!(
+        "part 2: {}",
+        parent_cum_risk[grid.size_y - 1][grid.size_x - 1].risk
+    )
+}
 
 #[derive(Debug, Clone)]
 struct Grid {
@@ -184,6 +191,26 @@ impl Grid {
             });
         }
     }
+
+    fn grow(&self, steps: usize) -> Self {
+        let mut risk = vec![vec![0; self.size_x * steps]; self.size_y * steps];
+        for (y, row) in risk.iter_mut().enumerate() {
+            for (x, elem) in row.iter_mut().enumerate() {
+                let mut new_val =
+                    self.risk[y % self.size_y][x % self.size_x] + x / self.size_x + y / self.size_y;
+                while new_val > 9 {
+                    new_val -= 9;
+                }
+                *elem = new_val;
+            }
+        }
+
+        Self {
+            size_x: self.size_x * steps,
+            size_y: self.size_y * steps,
+            risk,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -233,7 +260,7 @@ mod tests {
 
         for row in grid.risk.iter() {
             for elem in row.iter() {
-                eprint!("{:02} ", elem);
+                eprint!("{}", elem);
             }
             eprintln!();
         }
@@ -254,5 +281,31 @@ mod tests {
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
+        let grid = Grid::read(&content).grow(5);
+
+        let parent_cum_risk = grid.get_lowest_risk_paths();
+
+        for row in grid.risk.iter() {
+            for elem in row.iter() {
+                eprint!("{}", elem);
+            }
+            eprintln!();
+        }
+        eprintln!();
+
+        for row in parent_cum_risk.iter() {
+            for elem in row.iter() {
+                if elem.risk < usize::MAX {
+                    eprint!("{:03} ", elem.risk);
+                } else {
+                    eprint!("XX ");
+                }
+            }
+            eprintln!();
+        }
+
+        assert_eq!(parent_cum_risk[grid.size_y - 1][grid.size_x - 1].risk, 315);
+    }
 }
