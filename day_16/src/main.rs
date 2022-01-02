@@ -1,10 +1,12 @@
 #![allow(unused_imports)]
 use anyhow::{bail, Context, Error, Result};
 use nom::{
+    bits::bits,
+    bits::complete::{tag, take},
     branch::alt,
-    bytes::complete::{is_a, is_not, tag, take_while1},
+    bytes::complete::{is_a, is_not, take_while1},
     character::complete::{
-        alpha1, anychar, char, digit1, line_ending, multispace1, none_of, one_of, space0, space1,
+        alpha1, anychar, char, digit1, line_ending, multispace1, none_of, one_of, space0, space1, hex_digit1,
     },
     combinator::{map, map_res, value},
     multi::{many0, many1, separated_list1},
@@ -12,9 +14,9 @@ use nom::{
     Err::{Failure, Incomplete},
     ErrorConvert, Finish, IResult,
 };
-use std::cmp::Ordering;
+use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::env;
 use std::fmt;
 use std::fs::read_to_string;
@@ -29,178 +31,64 @@ fn main() -> Result<()> {
     );
     println!("Input: {}", input.display());
     let content = read_to_string(&input)?;
+    let raw = parse_bytes_from_hex(&content).finish().unwrap().1;
 
-    let grid = Grid::read(&content);
-
-    part1(&grid);
-    part2(&grid);
     Ok(())
 }
 
-fn part1(grid: &Grid) {
-    let low_points = grid.get_low_points();
-
-    println!(
-        "part1: {} low points with risk of {}",
-        low_points.len(),
-        low_points.iter().map(|p| p.risk_level()).sum::<usize>()
-    );
+#[derive (Debug, Clone, PartialEq, Eq)]
+enum Packet {
+    Literal(LiteralPacket),
+    Operator(OperatorPacket),
 }
 
-fn part2(grid: &Grid) {
-    println!("part 2: product: {}", grid.get_largest_basins().iter().product::<usize>());
+#[derive (Debug, Clone, PartialEq, Eq)]
+struct LiteralPacket {
+
 }
 
-#[derive(Debug, Clone)]
-struct Grid {
-    size_x: usize,
-    size_y: usize,
-    grid: Vec<Vec<usize>>,
+#[derive (Debug, Clone, PartialEq, Eq)]
+struct OperatorPacket {
+
 }
 
-impl Parseable for Grid {
-    fn parse(i: &str) -> IResult<&str, Self> {
-        let (i, grid) = separated_list1(line_ending, many1(num1::<usize>))(i)?;
+fn parse_bytes_from_hex(i: &str) -> IResult<&str, Vec<u8>> {
+    let (i, hex) = hex_digit1(i)?;
 
-        let size_y = grid.len();
-        let size_x = grid[0].len();
+    assert!(hex.len() % 2 == 0);
 
-        for line in grid.iter() {
-            assert_eq!(line.len(), size_x);
-        }
+    let hex_lc = hex.to_lowercase();
+    let mut iter = hex_lc.chars();
+    let mut values = Vec::new();
+    // input is expected to be byte aligned
+    while let Some(hex1) = iter.next() {
+        let hex2 = iter.next().unwrap();
 
-        Ok((
-            i,
-            Self {
-                grid,
-                size_x,
-                size_y,
-            },
-        ))
+        values.push((hex_to_u8(hex1) << 4) + hex_to_u8(hex2));
     }
+    Ok((i, values))
 }
 
-impl Grid {
-    fn read(i: &str) -> Self {
-        if let Ok((_, parsed)) = Self::parse(i).finish() {
-            parsed
-        } else {
-            panic!("Could not parse input.");
-        }
+fn hex_to_u8(c: char) -> u8 {
+    match c {
+        '0' => 0,
+        '1' => 1,
+        '2' => 2,
+        '3' => 3,
+        '4' => 4,
+        '5' => 5,
+        '6' => 6,
+        '7' => 7,
+        '8' => 8,
+        '9' => 9,
+        'a' => 10,
+        'b' => 11,
+        'c' => 12,
+        'd' => 13,
+        'e' => 14,
+        'f' => 15,
+        _ => panic!("Invalid value to convert to hex: {}", c),
     }
-
-    fn get_low_points(&self) -> Vec<Point> {
-        let mut points = Vec::new();
-
-        for y in 0..self.size_y {
-            for x in 0..self.size_x {
-                let height = self.grid[y][x];
-
-                if y > 0 && self.grid[y - 1][x] <= height {
-                    continue;
-                }
-                if x > 0 && self.grid[y][x - 1] <= height {
-                    continue;
-                }
-                if x < self.size_x - 1 && self.grid[y][x + 1] <= height {
-                    continue;
-                }
-                if y < self.size_y - 1 && self.grid[y + 1][x] <= height {
-                        continue;
-                }
-                points.push(Point { x, y, height });
-            }
-        }
-
-        points
-    }
-
-    fn get_basin(&self, point: &Point) -> HashSet<(usize, usize)> {
-        let origin = (point.x, point.y);
-
-        let mut basin_queue = BasinQueue::new(self);
-        basin_queue.checked_push(origin);
-
-        while let Some(current) = basin_queue.pop_front() {
-            if current.1 > 0 {
-                basin_queue.checked_push((current.0, current.1 - 1));
-            }
-            if current.0 > 0 {
-                basin_queue.checked_push((current.0 - 1, current.1));
-            }
-            if current.0 < self.size_x - 1 {
-                basin_queue.checked_push((current.0 + 1, current.1));
-            }
-            if current.1 < self.size_y - 1 {
-                basin_queue.checked_push((current.0, current.1 + 1));
-            }
-        }
-
-        basin_queue.basin
-    }
-
-    fn get_basin_sizes(&self) -> Vec<usize> {
-        self.get_low_points().iter().map(|p| self.get_basin(p).len()).collect()
-    }
-
-    fn get_largest_basins(&self) -> Vec<usize> {
-        let mut basin_sizes = self.get_basin_sizes();
-        basin_sizes.sort_unstable();
-        let all_but_three = basin_sizes.len() - 3;
-        basin_sizes.into_iter().skip(all_but_three).collect()
-    }
-}
-#[derive(Debug, Clone)]
-struct BasinQueue<'a> {
-    queue: VecDeque<(usize, usize)>,
-    basin: HashSet<(usize, usize)>,
-    grid: &'a Grid,
-}
-
-impl<'a> BasinQueue<'a> {
-    fn new(grid: &'a Grid) -> Self {
-        Self {
-            queue: VecDeque::new(),
-            basin: HashSet::new(),
-            grid
-        }
-    }
-
-    fn checked_push(&mut self, point: (usize, usize)) {
-        if !self.basin.contains(&point) && self.grid.grid[point.1][point.0] < 9 {
-            self.queue.push_back(point);
-            self.basin.insert(point);
-        }
-    }
-
-    fn pop_front(&mut self) -> Option<(usize, usize)> {
-        self.queue.pop_front()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Point {
-    height: usize,
-    x: usize,
-    y: usize,
-}
-
-impl Point {
-    fn risk_level(&self) -> usize {
-        self.height + 1
-    }
-}
-
-trait Parseable: Sized {
-    fn parse(i: &str) -> IResult<&str, Self>;
-}
-
-fn num1<T: std::str::FromStr>(i: &str) -> IResult<&str, T> {
-    map(one_of("0123456789"), |c: char| {
-        c.to_string()
-            .parse::<T>()
-            .unwrap_or_else(|_| panic!("could not parse number"))
-    })(i)
 }
 
 #[cfg(test)]
@@ -208,19 +96,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_part1() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        let low_points = grid.get_low_points();
-        assert_eq!(low_points.len(), 4);
-        assert_eq!(low_points.iter().map(|p| p.risk_level()).sum::<usize>(), 15);
+    fn test_parsing() {
+        assert_eq!(parse_bytes_from_hex("10").finish().unwrap().1, [0x10]);
+        assert_eq!(parse_bytes_from_hex("AB").finish().unwrap().1, [0xAB]);
+        assert_eq!(parse_bytes_from_hex("ef").finish().unwrap().1, [0xef]);
+        assert_eq!(parse_bytes_from_hex("1234").finish().unwrap().1, [0x12, 0x34]);
     }
 
     #[test]
-    fn test_part2() {
-        let content = read_to_string(PathBuf::from("debug.txt")).unwrap();
-        let grid = Grid::read(&content);
-        println!("{:#?}", grid.get_basin_sizes());
-        assert_eq!(grid.get_largest_basins().iter().product::<usize>(), 1134);
-    }
+    fn test_part1() {}
+
+    #[test]
+    fn test_part2() {}
 }
