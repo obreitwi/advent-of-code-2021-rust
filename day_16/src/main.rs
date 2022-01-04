@@ -35,6 +35,7 @@ fn main() -> Result<()> {
     let raw = parse_bytes_from_hex(&content).finish().unwrap().1;
 
     part1(&raw[..]);
+    part2(&raw[..]);
 
     Ok(())
 }
@@ -44,6 +45,13 @@ fn part1(i: &[u8]) {
     assert!(i.0.len() <= 1);
 
     println!("part 1: version sum = {}", pkt.version_sum());
+}
+
+fn part2(i: &[u8]) {
+    let (i, pkt) = Packet::parse((i, 0usize)).finish().unwrap();
+    assert!(i.0.len() <= 1);
+
+    println!("part 2: value = {}", pkt.value());
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,6 +265,73 @@ fn take_many<'a>(count: usize) -> impl Fn(InputBits<'a>) -> IResult<InputBits<'a
     }
 }
 
+trait Evaluatable {
+    fn value(&self) -> u64;
+}
+
+impl Evaluatable for Packet {
+    fn value(&self) -> u64 {
+        match self {
+            Self::Literal(pkt) => pkt.value(),
+            Self::Operator(pkt) => pkt.value(),
+        }
+    }
+}
+
+impl Evaluatable for LiteralPacket {
+    fn value(&self) -> u64 {
+        self.value
+    }
+}
+
+impl Evaluatable for OperatorPacket {
+    fn value(&self) -> u64 {
+        match self.type_id {
+            0 => {
+                // sum
+                self.packets.iter().map(|p| p.value()).sum()
+            }
+            1 => {
+                // product
+                self.packets.iter().map(|p| p.value()).product()
+            }
+            2 => {
+                // minimum
+                self.packets.iter().map(|p| p.value()).min().unwrap()
+            }
+            3 => {
+                // maximum
+                self.packets.iter().map(|p| p.value()).max().unwrap()
+            }
+            5 => {
+                // greater-than
+                if self.packets[0].value() > self.packets[1].value() {
+                    1
+                } else {
+                    0
+                }
+            }
+            6 => {
+                // less-than
+                if self.packets[0].value() < self.packets[1].value() {
+                    1
+                } else {
+                    0
+                }
+            }
+            7 => {
+                // equal
+                if self.packets[0].value() == self.packets[1].value() {
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => panic!("Encountered invalid type id: {}", self.type_id),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,5 +440,98 @@ mod tests {
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2_1() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("C200B40A82")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            3
+        );
+    }
+
+    #[test]
+    fn test_part2_2() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("04005AC33890")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            54
+        );
+    }
+
+    #[test]
+    fn test_part2_3() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("880086C3E88112")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            7
+        );
+    }
+
+    #[test]
+    fn test_part2_4() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("CE00C43D881120")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            9
+        );
+    }
+
+    #[test]
+    fn test_part2_5() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("D8005AC2A8F0")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_part2_6() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("F600BC2D8F")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_part2_7() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("9C005AC2F8F0")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_part2_8() {
+        assert_eq!(
+            Packet::parse((&hex_to_bytes_must("9C0141080250320F1802104A08")[..], 0))
+                .finish()
+                .unwrap()
+                .1
+                .value(),
+            1
+        );
+    }
 }
