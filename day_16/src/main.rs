@@ -67,11 +67,13 @@ struct OperatorPacket {
 
 type InputBits<'a> = (&'a [u8], usize);
 
-impl Packet {
+impl Parseable for Packet {
     fn parse(i: (&[u8], usize)) -> IResult<(&[u8], usize), Self> {
         alt((Self::parse_literal, Self::parse_operator))(i)
     }
+}
 
+impl Packet {
     fn parse_literal(i: (&[u8], usize)) -> IResult<(&[u8], usize), Self> {
         map(LiteralPacket::parse, Packet::Literal)(i)
     }
@@ -91,6 +93,16 @@ impl Packet {
 impl LiteralPacket {
     const TYPE_ID: u8 = 4;
 
+    fn version_sum(&self) -> usize {
+        self.version as usize
+    }
+}
+
+trait Parseable: Sized {
+    fn parse(i: InputBits) -> IResult<InputBits, Self>;
+}
+
+impl Parseable for LiteralPacket {
     fn parse(i: InputBits) -> IResult<InputBits, Self> {
         let (i, version): (InputBits, u8) = take(3usize)(i)?;
         let (mut i, _) = tag(Self::TYPE_ID, 3usize)(i)?;
@@ -112,10 +124,6 @@ impl LiteralPacket {
         }
         Ok((i, Self { version, value }))
     }
-
-    fn version_sum(&self) -> usize {
-        self.version as usize
-    }
 }
 
 impl OperatorPacket {
@@ -123,9 +131,22 @@ impl OperatorPacket {
         let (i, version): (InputBits, u8) = take(3usize)(i)?;
         let _ = not(tag(LiteralPacket::TYPE_ID, 3usize))(i)?;
         let (i, type_id): (InputBits, u8) = take(3usize)(i)?;
+        let (i, packets) = Vec::<Packet>::parse(i)?;
 
+        Ok((
+            i,
+            Self {
+                type_id,
+                version,
+                packets,
+            },
+        ))
+    }
+}
+
+impl Parseable for Vec<Packet> {
+    fn parse(i: InputBits) -> IResult<InputBits, Self> {
         let (i, size_tag): (InputBits, u8) = take(1usize)(i)?;
-
         if size_tag == 0 {
             let (i, total_bits): (InputBits, usize) = take(15usize)(i)?;
             let get_error = || {
@@ -153,14 +174,7 @@ impl OperatorPacket {
                     );
                     get_error()
                 } else {
-                    Ok((
-                        i,
-                        Self {
-                            type_id,
-                            version,
-                            packets,
-                        },
-                    ))
+                    Ok((i, packets))
                 }
             } else {
                 get_error()
@@ -175,17 +189,12 @@ impl OperatorPacket {
                 i = ii;
             }
 
-            Ok((
-                i,
-                Self {
-                    type_id,
-                    version,
-                    packets,
-                },
-            ))
+            Ok((i, packets))
         }
     }
+}
 
+impl OperatorPacket {
     fn version_sum(&self) -> usize {
         let packet_sum: usize = self.packets.iter().map(|p: &Packet| p.version_sum()).sum();
         self.version as usize + packet_sum
