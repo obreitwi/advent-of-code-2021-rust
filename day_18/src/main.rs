@@ -37,6 +37,7 @@ fn main() -> Result<()> {
     assert_eq!(numbers.len(), 100);
 
     part1(&numbers[..]);
+    part2(&numbers[..]);
 
     Ok(())
 }
@@ -46,10 +47,14 @@ fn part1(numbers: &[SnailfishNumber]) {
     for num in numbers.iter().skip(1) {
         result = &result + num;
     }
-    eprintln!("part 1: {}", result.magnitude());
+    println!("part 1: {}", result.magnitude());
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+fn part2(numbers: &[SnailfishNumber]) {
+    println!("part 2: {}", find_largest_magnitude(numbers));
+}
+
+#[derive(Debug, Clone)]
 enum SnailfishNumber {
     Regular(u64),
     Pair(Box<(SnailfishNumber, SnailfishNumber)>),
@@ -206,6 +211,33 @@ impl fmt::Display for SnailfishNumber {
     }
 }
 
+fn find_largest_magnitude(numbers: &[SnailfishNumber]) -> u64 {
+    numbers
+        .iter()
+        .flat_map(|x| numbers.iter().map(|y| (x, y)).collect::<Vec<_>>())
+        .filter_map(|(x, y)| {
+            if x != y {
+                Some((x + y).magnitude())
+            } else {
+                None
+            }
+        })
+        .max()
+        .unwrap()
+}
+
+impl PartialEq for SnailfishNumber {
+    fn eq(&self, other: &SnailfishNumber) -> bool {
+        match (self, other) {
+            (SnailfishNumber::Regular(left), &SnailfishNumber::Regular(right)) => *left == right,
+            (SnailfishNumber::Pair(ref left), &SnailfishNumber::Pair(ref right)) => {
+                left.0 == right.0 && left.1 == right.1
+            }
+            (_, _) => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +294,29 @@ mod tests {
                 .magnitude(),
             3488
         );
+    }
+
+    #[test]
+    fn part2() {
+        let numbers: Vec<_> = [
+            "[[[0,[5,8]],[[1,7],[9,6]]],[[4,[1,2]],[[1,4],2]]]",
+            "[[[5,[2,8]],4],[5,[[9,9],0]]]",
+            "[6,[[[6,2],[5,6]],[[7,6],[4,7]]]]",
+            "[[[6,[0,7]],[0,9]],[4,[9,[9,0]]]]",
+            "[[[7,[6,4]],[3,[1,3]]],[[[5,5],1],9]]",
+            "[[6,[[7,3],[3,2]]],[[[3,8],[5,7]],4]]",
+            "[[[[5,4],[7,7]],8],[[8,3],8]]",
+            "[[9,3],[[9,9],[6,[4,9]]]]",
+            "[[2,[[7,7],7]],[[5,8],[[9,3],[0,2]]]]",
+            "[[[[5,2],5],[8,[3,7]]],[[5,[7,5]],[4,4]]]",
+        ]
+        .iter()
+        .map(|n| SnailfishNumber::parse(n).unwrap().1)
+        .collect();
+
+        assert_eq!(numbers.len(), 10);
+
+        assert_eq!(find_largest_magnitude(&numbers[..]), 3993);
     }
 
     fn compare(input: &[&str], want: &str) {
