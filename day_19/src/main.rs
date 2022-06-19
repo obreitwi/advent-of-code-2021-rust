@@ -35,7 +35,8 @@ fn main() -> Result<()> {
     let content = read_to_string(&input)?;
     let scanners = Vec::<Scanner>::parse(&content).finish().unwrap().1;
 
-    part1(scanners)?;
+    let aligned = part1(scanners)?;
+    part2(&aligned[..])?;
 
     Ok(())
 }
@@ -44,10 +45,27 @@ trait Parseable: Sized {
     fn parse(i: &str) -> IResult<&str, Self>;
 }
 
-fn part1(scanners: Vec<Scanner>) -> Result<()> {
+fn part1(scanners: Vec<Scanner>) -> Result<Vec<Scanner>> {
     let aligned = align(scanners, 12)?;
     let num_beacons = count_beacons(&aligned[..])?;
     println!("part1: there are {} beacons", num_beacons);
+
+    Ok(aligned)
+}
+
+fn part2(scanners: &[Scanner]) -> Result<()> {
+    let positions = scanners
+        .iter()
+        .map(|s| s.position.unwrap())
+        .collect::<Vec<_>>();
+
+    let manhattan = positions
+        .iter()
+        .flat_map(|x| positions.iter().map(|y| x.manhattan(y)))
+        .max()
+        .unwrap();
+
+    println!("part2: max manhattan distance: {}", manhattan);
 
     Ok(())
 }
@@ -61,6 +79,12 @@ struct Position {
     x: i64,
     y: i64,
     z: i64,
+}
+
+impl Position {
+    fn manhattan(&self, other: &Self) -> u64 {
+        self.x.abs_diff(other.x) + self.y.abs_diff(other.y) + self.z.abs_diff(other.z)
+    }
 }
 
 impl Add for &Position {
@@ -220,7 +244,10 @@ impl Scanner {
 }
 
 fn align(unaligned: Vec<Scanner>, min_matches: usize) -> Result<Vec<Scanner>> {
-    let mut origin = unaligned.get(0).with_context(|| "must provide at least one element")?.clone();
+    let mut origin = unaligned
+        .get(0)
+        .with_context(|| "must provide at least one element")?
+        .clone();
     origin.position = Some(Position { x: 0, y: 0, z: 0 });
     let mut aligned = vec![origin];
     let mut unaligned = unaligned.into_iter().skip(1).collect::<VecDeque<Scanner>>();
@@ -426,7 +453,7 @@ mod tests {
             for right in scanners.iter() {
                 match left.check_match(right, 6) {
                     None => {}
-                    Some(Position{x: 0, y: 0, z: 0}) => {
+                    Some(Position { x: 0, y: 0, z: 0 }) => {
                         identity_found = true;
                     }
                     Some(pos) => {
